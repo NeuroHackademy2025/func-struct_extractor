@@ -1,0 +1,10 @@
+{
+  "subject": "subj01",
+  "tract": "tracts/subj01_L_arcuate.tck",
+  "scalars": [
+    {"path": "qT1_pp/subj01_qt1_pp_mean.nii.gz", "name": "qT1"}
+  ],
+  "n_points": 100,
+  "output_dir": "results",
+  "overwrite": true
+}

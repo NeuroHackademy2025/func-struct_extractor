@@ -1,0 +1,10 @@
+subject: subj01
+fs_dir: /data/freesurfer
+tractogram: tracts/subj01_bundle.trk
+fivett: /data/...
+roi1: rois/subj01_face.nii.gz
+roi1_name: face
+wmfod: /data/wmfod.mif
+search_dist: 2.0
+output_dir: results
+overwrite: true
