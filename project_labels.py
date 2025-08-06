@@ -58,3 +58,63 @@ def surf_label_2_vol(subs, ROIs, fs_dir, out_dir=None, hemispheres='both'):
             vol_array[i, j] = vol
             
     return vol_array
+
+
+def vol_label_2_surf(nifti_image_path, surface_mesh_path, hemisphere='both', output_filename_prefix=None):
+    '''
+    Convert a NIfTI image to surface labels in the MNE format.
+
+    This function takes a NIfTI image and projects it onto a specified 
+    surface mesh. It creates labels based on the indices of non-zero 
+    values in the surface data and either saves them as .label files 
+    or returns them as Label objects.
+
+    Parameters:
+    nifti_image_path (str): The file path to the input NIfTI image (.nii or .nii.gz).
+    surface_mesh_path (str): The file path to the surface mesh file.
+    hemisphere (str): The hemisphere(s) to create the label for. Options are:
+                      'lh' for left hemisphere, 'rh' for right hemisphere, 
+                      or 'both' for both hemispheres. Default is 'both'.
+    output_filename_prefix (str or None): The prefix for the resulting label file(s). 
+                                           If provided, the files will be saved. 
+                                           If None, the labels will not be saved, 
+                                           and instead, the function will return the labels.
+
+    Returns:
+    list: A list of generated MNE Label objects for the specified hemisphere(s).
+    '''
+    
+    # Convert the NIfTI image to surface data
+    surface_data = surface.vol_to_surf(img=nifti_image_path, surf_mesh=surface_mesh_path)
+
+    # Initialize a list to hold the labels for output
+    labels_to_return = []
+    
+    # Initialize a list of hemispheres to process
+    hemispheres_to_process = []
+
+    # Determine which hemispheres to process based on input
+    if hemisphere == 'both':
+        hemispheres_to_process = ['lh', 'rh']
+    elif hemisphere in ['lh', 'rh']:
+        hemispheres_to_process = [hemisphere]
+    else:
+        raise ValueError("Invalid hemisphere value. Please use 'lh', 'rh', or 'both'.")
+
+    # Loop through specified hemispheres and create labels
+    for hemi in hemispheres_to_process:
+        # Identify indices where the surface data is greater than zero
+        non_zero_indices = np.where(surface_data > 0)[0]
+
+        # Create a Label object with the identified indices for the given hemisphere
+        label = mne.Label(non_zero_indices, hemi=hemi)
+
+        # Append the label to the list of labels to return
+        labels_to_return.append(label)
+
+        # If an output filename prefix is provided, save the label to a .label file
+        if output_filename_prefix is not None:
+            output_filename = f'{output_filename_prefix}_{hemi}.label'
+            label.save(output_filename)
+
+    return labels_to_return
