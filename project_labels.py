@@ -247,3 +247,59 @@ def fsnative_label_2_fsaverage(fsnative_path, fsaverage_path, fsnative_label,
         label.save(output_filename)
 
     return label
+
+def fsaverage_label_2_fsnative(fsaverage_path, fsnative_path, fsaverage_label,
+                                hemisphere, output_filename=None):
+    '''
+    Interpolate a surface label from a native FreeSurfer subject to the fsaverage surface.
+
+    This function loads a native surface label, interpolates it onto the fsaverage surface,
+    and optionally saves the resulting label as a .label file.
+
+    Parameters:
+    fsaverage_path (str): The file path to the fsaverage surface mesh (e.g., `.pial`).
+    fsnative_path (str): The file path to the native surface mesh (e.g., `.pial`).
+    fsaverage_label (array): The array contains the vertices of the average surface label.
+    hemisphere (str): The hemisphere to process ('lh' for left hemisphere or 'rh' for right hemisphere).
+    output_filename (str or None): The filename to save the label. 
+                                    If provided, the label will be saved; if None, it will not be saved.
+
+    Returns:
+    mne.Label: The interpolated label for the specified hemisphere.
+    '''
+    
+    # Load FreeSurfer subjects
+    fsa_sub = ny.freesurfer_subject(fsaverage_path)
+    fsn_sub = ny.freesurfer_subject(fsnative_path)
+
+    # Interpolate the label to the fsaverage surface
+    if hemisphere == 'lh':
+        # Create a boolean array for the label with the same vertex count as the subject's surface
+        fsa_label = np.zeros(fsa_sub.lh.vertex_count, dtype=bool)
+    
+        # Set the specified indices to True
+        fsa_label[fsaverage_label] = True
+        
+        fsn_label = fsa_sub.lh.interpolate(fsn_sub.lh, fsa_label)
+    elif hemisphere == 'rh':
+        # Create a boolean array for the label with the same vertex count as the subject's surface
+        fsa_label = np.zeros(fsa_sub.rh.vertex_count, dtype=bool)
+    
+        # Set the specified indices to True
+        fsa_label[fsaverage_label] = True
+        
+        fsn_label = fsa_sub.rh.interpolate(fsn_sub.rh, fsa_label)
+    else:
+        raise ValueError("Hemisphere needs to be specified as 'lh' or 'rh'.")
+
+    # Find the indices of the interpolated labels that are True
+    fsn_label_indices = np.where(fsn_label == True)[0]
+
+    # Create an MNE Label object using the interpolated indices
+    label = mne.Label(fsn_label_indices, hemi=hemisphere)
+
+    # Save the label if an output filename is provided
+    if output_filename is not None:
+        label.save(output_filename)
+
+    return label
