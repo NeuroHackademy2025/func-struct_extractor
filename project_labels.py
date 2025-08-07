@@ -202,74 +202,169 @@ def fsaverage_label_2_fsnative(fsaverage_path, fsnative_path, fsaverage_label,
     return label
 
 
-def MNI_label_2_native(fs_dir:str, sub_id: str, mni_fname: str):
+def MNI_label_2_native(t1_fname:str, sub_id: str, calc_brain_mask: bool, 
+                       roi_fname: str, save_coreg:bool, out_fname:str):
 
     '''
-    Convert MNI labels to native volumetric space.
+    Function to take ROIs from MNI space to Native space. 
 
-    Parameters:
-    fs_dir (str): The path to the FS directory. 
-    sub (str): The subject ID as string. 
-    mni_fname (str): The path to the mni space image. 
-    
-    Returns:
-    mni_SyN_trans: the volumetric rois in native space.
+    Parameters: 
+    -----------
+    t1_fname (str): The path to the T1 file.
+    sub_id (str): The unique identifier for the subject.
+    calc_brain_mask (bool): Whether the function should calculate a new brain mask.
+    roi_fname (str): The path to the ROI file.
+    save_coreg (bool): Whether to save the coregistration to file. 
+    out_fname (str): Filename for the coregistration file.
+
+    Returns: 
+    --------
+    mni_coreg: The Volumetric ROIs in Native space as an ANTsImage.  
     
     '''
 
     print(f'Converting MNI ROI labels to Native space for {sub_id}')
     
-    # Retrieve the T1 image from subject freesurfer directory
-    t1_fname = nsd_base_path / 'nsddata' / 'ppdata' / sub_id  /'anat' / 'T1_1pt0_masked.nii.gz'
-    t1_img = ants.image_read(t1_fname.fspath)
+    # Loading the T1 Image
+    try: 
+        t1_img = ants.image_read(t1_fname)
+    except: 
+        t1_img = ants.image_read(t1_fname.fspath)
 
-    t1_brain_mask = ants.get_mask(image = t1_img, 
-                                  low_thresh = 500, high_thresh = 2000, 
-                                  cleanup = 2)
+    # Calculating the brain mask if needed
+    if calc_brain_mask == True: 
+        t1_brain_mask = ants.get_mask(image = t1_img, 
+                                      low_thresh = 500, high_thresh = 2000, 
+                                      cleanup = 2)
+        # Applying mask to T1 image
+        t1_masked = ants.mask_image(t1_img, t1_brain_mask)
+    else: 
+        t1_maske = ants.clone(t1_img)
 
+    del t1_img
+    
+    # Loading the mni template
     mni_template = ants.image_read(ants.get_data('mni'))
 
-    # Get the MNI image from ANTS
-    if mni_fname: 
-        print('Using provided MNI ROI Mask Definition')
-        mni_img = ants.image_read(mni_fname)       
+    # Loading the MNI Space Volumetric ROIs
+    if roi_fname: 
+        print('Using provided MNI ROI Definition')
+        roi_img = ants.image_read(roi_fname)       
 
     print('Calculating Affine Transformation')
-        
     # Calculate the Affine Transformation
-    affine_reg = ants.registration(fixed = t1_brain_mask, 
-                                   moving = mni_template,
-                                   # mask = t1_brain_mask,
-                                   moving_mask = mni_img,  
+    affine_reg = ants.registration(fixed = t1_masked, 
+                                   moving = mni_template, 
                                    type_of_transform = 'Affine')
 
     # Apply Affine Transformation 
-    mni_affine_trans = ants.apply_transforms(fixed = t1_brain_mask, 
-                                             moving = mni_img,
-                                             transformlist=affine_reg['fwdtransforms'])
+    if roi_fname: 
+        mni_affine_trans = ants.apply_transforms(fixed = t1_masked, 
+                                                 moving = roi_img,
+                                                 transformlist=affine_reg['fwdtransforms'])
+    else: 
+        mni_affine_trans = ants.apply_transforms(fixed = t1_masked, 
+                                                 moving = mni_template,
+                                                 transformlist=affine_reg['fwdtransforms'])
     print('Calculating SyN Transformation')
     # Calculate SyN Transformation
-    SyN_reg = ants.registration(fixed = t1_brain_mask, 
-                                # mask = t1_brain_mask,
+    SyN_reg = ants.registration(fixed = t1_masked, 
                                 moving = mni_affine_trans,
                                 type_of_transform = 'SyN')
 
     # Apply SyN Transformation
-    mni_SyN_trans = ants.apply_transforms(fixed = t1_brain_mask, 
+    native_coreg = ants.apply_transforms(fixed = t1_masked, 
                                           moving = mni_affine_trans, 
                                           transformlist = SyN_reg['fwdtransforms'])
 
-    mni_SyN_trans.image_write(filename = f'/home/jovyan/projects/func-struct_extractor/data/derivatives/{sub_id}_MNI_to_Native.nii.gz')
-
-    print('Plotting Coregistration')
-    # Plot the coregistration and save it in a derivative data directory
-    ants.plot(image = t1_img, 
-              overlay = mni_SyN_trans, 
-              overlay_alpha = 0.5, 
-              filename=f'/home/jovyan/projects/func-struct_extractor/data/derivatives/coregistration/{sub_id}_registration_plot.png', 
-              title = f'{sub_id} MNI to Native Coregistration')
+    if save_coreg: native_coreg.image_write(filename = out_fname)
     
     print(f'{sub_id} Finished.\n')
     
     # Return the native volumetric space
-    return mni_SyN_trans
+    return native_coreg
+
+def native_label_2_mni(t1_fname:str, sub_id: str, calc_brain_mask: bool, 
+                       roi_fname: str, save_coreg:bool, out_fname:str):
+
+    '''
+    Function to take ROIs from Native space to MNI space. 
+
+    Parameters: 
+    -----------
+    t1_fname (str): The path to the T1 file.
+    sub_id (str): The unique identifier for the subject.
+    calc_brain_mask (bool): Whether the function should calculate a new brain mask.
+    roi_fname (str): The path to the ROI file.
+    save_coreg (bool): Whether to save the coregistration to file. 
+    out_fname (str): Filename for the coregistration file.
+
+    Returns: 
+    --------
+    mni_coreg: The Volumetric ROIs in MNI space as an ANTsImage.  
+    
+    '''
+
+    print(f'Converting Native ROI labels to MNI space for {sub_id}')
+    
+    # Retrieve the T1 image from subject freesurfer directory
+    try:
+        t1_img = ants.image_read(t1_fname)
+    except:
+        t1_img = ants.image_read(t1_fname.fspath)
+
+    # Calculating the brain mask if needed
+    if calc_brain_mask == True: 
+        t1_brain_mask = ants.get_mask(image = t1_img, 
+                                      low_thresh = 500, high_thresh = 2000, 
+                                      cleanup = 2)
+        # Applying mask to T1 image
+        t1_masked = ants.mask_image(t1_img, t1_brain_mask)
+    else: 
+        t1_masked = ants.clone(t1_img)
+
+    del t1_img
+    
+    # Loading the mni template
+    mni_template = ants.image_read(ants.get_data('mni'))
+
+    if roi_fname: 
+        # Loading the Native Space Volumetric ROIs
+        try: 
+            ants.image_read(roi_fname)
+        except: 
+            roi_img = ants.image_read(roi_fname.fspath)     
+
+    print('Calculating Affine Transformation')
+        
+    # Calculate the Affine Transformation
+    affine_reg = ants.registration(fixed = mni_template, 
+                                   moving = t1_masked,
+                                   type_of_transform = 'Affine')
+
+    # Apply Affine Transformation 
+    if roi_fname: 
+        mni_affine_trans = ants.apply_transforms(fixed = mni_template, 
+                                                 moving = roi_img,
+                                                 transformlist=affine_reg['fwdtransforms'])
+    else: 
+        mni_affine_trans = ants.apply_transforms(fixed = mni_template, 
+                                                 moving = t1_masked,
+                                                 transformlist=affine_reg['fwdtransforms'])    
+    print('Calculating SyN Transformation')
+    # Calculate SyN Transformation
+    SyN_reg = ants.registration(fixed = mni_template, 
+                                moving = mni_affine_trans,
+                                type_of_transform = 'SyN')
+
+    # Apply SyN Transformation
+    mni_coreg = ants.apply_transforms(fixed = mni_template, 
+                                      moving = mni_affine_trans, 
+                                      transformlist = SyN_reg['fwdtransforms'])
+
+    if save_coreg: mni_coreg.image_write(filename = out_fname)
+    
+    print(f'{sub_id} Finished.\n')
+    
+    # Return the native volumetric space
+    return mni_coreg
