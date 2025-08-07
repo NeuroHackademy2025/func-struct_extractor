@@ -1,197 +1,94 @@
 import numpy as np
 import neuropythy as ny
 import ants
+import nibabel as nib
+import mne
 
-def surf_label_2_vol(subs, ROIs, fs_dir, out_dir=None, hemispheres='both'):
+def surf_label_2_vol(sub_id, label, fs_dir, out_dir=None, hemi='both'):
     '''
     Convert surface labels to volumetric NIfTI images for specified subjects and ROIs.
 
     Parameters:
-    subs (list or str): A list of subject IDs or a single subject ID.
-    ROIs (list or str): A list of ROIs or a single ROI.
+    sub_id (str): A list of subject IDs or a single subject ID.
+    labels (str): A list of labels or a single label.
     fs_dir (str): Directory containing FreeSurfer subjects.
     out_dir (str or None): Directory to save the output NIfTI volumes. If None, volumes are not saved. Default is None.
-    hemispheres (str): Specify 'lh', 'rh', or 'both' to determine which hemispheres to process. Default is 'both'.
+    hemi (str): Specify 'lh', 'rh', or 'both' to determine which hemispheres to process. Default is 'both'.
 
     Returns:
     np.ndarray: An array of shape (number of subjects, number of ROIs) containing the generated volumes.
     '''
+  
+    # Make sure that the ny module is ready to be used
+    sub = ny.freesurfer_subject(f'{fs_dir}{sub_id}/')
+
+    # Create a template volume to fill with labels
+    template = sub.images['ribbon']
+    template = ny.image_clear(template)
     
-    if isinstance(subs, str):
-        subs = [subs]
+    # Initialize masks for both hemispheres
+    label_lh_mask = np.zeros(sub.lh.vertex_count)
+    label_rh_mask = np.zeros(sub.rh.vertex_count)
+
+    # Process left hemisphere if needed
+    if hemi in ['lh', 'both']:
+        label_lh = sub.load(f'label/lh.{label}.label')
+        label_lh_mask[label_lh[0]] = True
+
+    # Process right hemisphere if needed
+    if hemi in ['rh', 'both']:
+        label_rh = sub.load(f'label/rh.{label}.label')
+        label_rh_mask[label_rh[0]] = True
+
+    # Convert masks to NIfTI object
+    vol = sub.cortex_to_image((label_lh_mask, label_rh_mask), im=template)
+
+    # Save volume if out_dir is provided
+    if out_dir is not None:
+        vol.to_filename(f'{out_dir}{sub_id}_{label}_vol.nii.gz')
     
-    if isinstance(ROIs, str):
-        ROIs = [ROIs]
-    
-    vol_array = np.empty((len(subs), len(ROIs)), dtype=object)
-    
-    for i, sub_id in enumerate(subs):
-        # Make sure that the ny module is ready to be used
-        sub = ny.freesurfer_subject(f'{fs_dir}{sub_id}/')
+    return vol
 
-        for j, roi in enumerate(ROIs):
-            # Create a template volume to fill with labels
-            template = sub.images['ribbon']
-            template = ny.image_clear(template)
-            
-            # Initialize masks for both hemispheres
-            label_lh_mask = np.zeros(sub.lh.vertex_count)
-            label_rh_mask = np.zeros(sub.rh.vertex_count)
 
-            # Process left hemisphere if needed
-            if hemispheres in ['lh', 'both']:
-                label_lh = sub.load(f'label/lh.{roi}.label')
-                label_lh_mask[label_lh[0]] = True
-
-            # Process right hemisphere if needed
-            if hemispheres in ['rh', 'both']:
-                label_rh = sub.load(f'label/rh.{roi}.label')
-                label_rh_mask[label_rh[0]] = True
-
-            # Convert masks to NIfTI objects (the other hemisphere will just be zeros)
-            vol = sub.cortex_to_image((label_lh_mask, label_rh_mask), im=template)
-
-            # Save volume if out_dir is provided
-            if out_dir is not None:
-                vol.to_filename(f'{out_dir}{sub_id}_{roi}_vol.nii.gz')
-
-            # Store the volume for this subject and ROI
-            vol_array[i, j] = vol
-            
-    return vol_array
-
-def MNI_label_2_native(fs_dir:str, sub_id: str, mni_fname: str):
-
+def vol_label_2_surf(sub_id, label, fs_dir, out_dir=None, hemi='both'):
     '''
-    Convert MNI labels to native volumetric space.
+    Convert surface labels to volumetric NIfTI images for specified subjects and ROIs.
 
     Parameters:
-    fs_dir (str): The path to the FS directory. 
-    sub (str): The subject ID as string. 
-    mni_fname (str): The path to the mni space image. 
-    
-    Returns:
-    mni_SyN_trans: the volumetric rois in native space.
-    
-    '''
-
-    print(f'Converting MNI ROI labels to Native space for {sub_id}')
-    
-    # Retrieve the T1 image from subject freesurfer directory
-    t1_fname = nsd_base_path / 'nsddata' / 'ppdata' / sub_id  /'anat' / 'T1_1pt0_masked.nii.gz'
-    t1_img = ants.image_read(t1_fname.fspath)
-
-    t1_brain_mask = ants.get_mask(image = t1_img, 
-                                  low_thresh = 500, high_thresh = 2000, 
-                                  cleanup = 2)
-
-    mni_template = ants.image_read(ants.get_data('mni'))
-
-    # Get the MNI image from ANTS
-    if mni_fname: 
-        print('Using provided MNI ROI Mask Definition')
-        mni_img = ants.image_read(mni_fname)       
-
-    print('Calculating Affine Transformation')
-        
-    # Calculate the Affine Transformation
-    affine_reg = ants.registration(fixed = t1_brain_mask, 
-                                   moving = mni_template,
-                                   # mask = t1_brain_mask,
-                                   moving_mask = mni_img,  
-                                   type_of_transform = 'Affine')
-
-    # Apply Affine Transformation 
-    mni_affine_trans = ants.apply_transforms(fixed = t1_brain_mask, 
-                                             moving = mni_img,
-                                             transformlist=affine_reg['fwdtransforms'])
-    print('Calculating SyN Transformation')
-    # Calculate SyN Transformation
-    SyN_reg = ants.registration(fixed = t1_brain_mask, 
-                                # mask = t1_brain_mask,
-                                moving = mni_affine_trans,
-                                type_of_transform = 'SyN')
-
-    # Apply SyN Transformation
-    mni_SyN_trans = ants.apply_transforms(fixed = t1_brain_mask, 
-                                          moving = mni_affine_trans, 
-                                          transformlist = SyN_reg['fwdtransforms'])
-
-    mni_SyN_trans.image_write(filename = f'/home/jovyan/projects/func-struct_extractor/data/derivatives/{sub_id}_MNI_to_Native.nii.gz')
-
-    print('Plotting Coregistration')
-    # Plot the coregistration and save it in a derivative data directory
-    ants.plot(image = t1_img, 
-              overlay = mni_SyN_trans, 
-              overlay_alpha = 0.5, 
-              filename=f'/home/jovyan/projects/func-struct_extractor/data/derivatives/coregistration/{sub_id}_registration_plot.png', 
-              title = f'{sub_id} MNI to Native Coregistration')
-    
-    print(f'{sub_id} Finished.\n')
-    
-    # Return the native volumetric space
-    return mni_SyN_trans
-
-
-def vol_label_2_surf(nifti_image_path, surface_mesh_path, hemisphere='both', output_filename_prefix=None):
-    '''
-    Convert a NIfTI image to surface labels in the MNE format.
-
-    This function takes a NIfTI image and projects it onto a specified 
-    surface mesh. It creates labels based on the indices of non-zero 
-    values in the surface data and either saves them as .label files 
-    or returns them as Label objects.
-
-    Parameters:
-    nifti_image_path (str): The file path to the input NIfTI image (.nii or .nii.gz).
-    surface_mesh_path (str): The file path to the surface mesh file.
-    hemisphere (str): The hemisphere(s) to create the label for. Options are:
-                      'lh' for left hemisphere, 'rh' for right hemisphere, 
-                      or 'both' for both hemispheres. Default is 'both'.
-    output_filename_prefix (str or None): The prefix for the resulting label file(s). 
-                                           If provided, the files will be saved. 
-                                           If None, the labels will not be saved, 
-                                           and instead, the function will return the labels.
+    sub_id (str): A single subject ID.
+    labels (nii object): A nifti object for a single label.
+    fs_dir (str): Directory containing FreeSurfer subjects.
+    out_dir (str or None): Directory to save the output NIfTI volumes. If None, volumes are not saved. Default is None.
+    hemi (str): Specify 'lh', 'rh', or 'both' to determine which hemispheres to process. Default is 'both'.
 
     Returns:
-    list: A list of generated MNE Label objects for the specified hemisphere(s).
+    np.ndarray: An array of shape (number of subjects, number of ROIs) containing the generated volumes.
     '''
-    
-    # Convert the NIfTI image to surface data
-    surface_data = surface.vol_to_surf(img=nifti_image_path, surf_mesh=surface_mesh_path)
+  
+    # Make sure that the ny module is ready to be used
+    sub = ny.freesurfer_subject(f'{fs_dir}{sub_id}/')
 
-    # Initialize a list to hold the labels for output
-    labels_to_return = []
-    
-    # Initialize a list of hemispheres to process
-    hemispheres_to_process = []
+    # Convert masks to NIfTI object
+    lh_label, rh_label = sub.image_to_cortex(label)
 
-    # Determine which hemispheres to process based on input
-    if hemisphere == 'both':
-        hemispheres_to_process = ['lh', 'rh']
-    elif hemisphere in ['lh', 'rh']:
-        hemispheres_to_process = [hemisphere]
+    lh_label_indices = np.where(lh_label > 0)[0]
+    if len(lh_label_indices) > 0:
+        left_label = mne.Label(lh_label_indices, hemi='lh')
+        if out_dir is not None:
+            left_label.save(f'{out_dir}lh_{sub_id}_{label}')    
     else:
-        raise ValueError("Invalid hemisphere value. Please use 'lh', 'rh', or 'both'.")
+        return('no vertices in left hemisphere')
 
-    # Loop through specified hemispheres and create labels
-    for hemi in hemispheres_to_process:
-        # Identify indices where the surface data is greater than zero
-        non_zero_indices = np.where(surface_data > 0)[0]
+    rh_label_indices = np.where(rh_label > 0)[0]
+    if len(lh_label_indices) > 0:
+        right_label = mne.Label(rh_label_indices, hemi='lh')
+        if out_dir is not None:
+                    right_label.save(f'{out_dir}rh_{sub_id}_{label}')    else:
+        return('no vertices in right hemisphere')
+            
+    return (left_label, right_label)
 
-        # Create a Label object with the identified indices for the given hemisphere
-        label = mne.Label(non_zero_indices, hemi=hemi)
-
-        # Append the label to the list of labels to return
-        labels_to_return.append(label)
-
-        # If an output filename prefix is provided, save the label to a .label file
-        if output_filename_prefix is not None:
-            output_filename = f'{output_filename_prefix}_{hemi}.label'
-            label.save(output_filename)
-
-    return labels_to_return
-
+    
 def fsnative_label_2_fsaverage(fsnative_path, fsaverage_path, fsnative_label,
                                 hemisphere, output_filename=None):
     '''
@@ -303,3 +200,76 @@ def fsaverage_label_2_fsnative(fsaverage_path, fsnative_path, fsaverage_label,
         label.save(output_filename)
 
     return label
+
+
+def MNI_label_2_native(fs_dir:str, sub_id: str, mni_fname: str):
+
+    '''
+    Convert MNI labels to native volumetric space.
+
+    Parameters:
+    fs_dir (str): The path to the FS directory. 
+    sub (str): The subject ID as string. 
+    mni_fname (str): The path to the mni space image. 
+    
+    Returns:
+    mni_SyN_trans: the volumetric rois in native space.
+    
+    '''
+
+    print(f'Converting MNI ROI labels to Native space for {sub_id}')
+    
+    # Retrieve the T1 image from subject freesurfer directory
+    t1_fname = nsd_base_path / 'nsddata' / 'ppdata' / sub_id  /'anat' / 'T1_1pt0_masked.nii.gz'
+    t1_img = ants.image_read(t1_fname.fspath)
+
+    t1_brain_mask = ants.get_mask(image = t1_img, 
+                                  low_thresh = 500, high_thresh = 2000, 
+                                  cleanup = 2)
+
+    mni_template = ants.image_read(ants.get_data('mni'))
+
+    # Get the MNI image from ANTS
+    if mni_fname: 
+        print('Using provided MNI ROI Mask Definition')
+        mni_img = ants.image_read(mni_fname)       
+
+    print('Calculating Affine Transformation')
+        
+    # Calculate the Affine Transformation
+    affine_reg = ants.registration(fixed = t1_brain_mask, 
+                                   moving = mni_template,
+                                   # mask = t1_brain_mask,
+                                   moving_mask = mni_img,  
+                                   type_of_transform = 'Affine')
+
+    # Apply Affine Transformation 
+    mni_affine_trans = ants.apply_transforms(fixed = t1_brain_mask, 
+                                             moving = mni_img,
+                                             transformlist=affine_reg['fwdtransforms'])
+    print('Calculating SyN Transformation')
+    # Calculate SyN Transformation
+    SyN_reg = ants.registration(fixed = t1_brain_mask, 
+                                # mask = t1_brain_mask,
+                                moving = mni_affine_trans,
+                                type_of_transform = 'SyN')
+
+    # Apply SyN Transformation
+    mni_SyN_trans = ants.apply_transforms(fixed = t1_brain_mask, 
+                                          moving = mni_affine_trans, 
+                                          transformlist = SyN_reg['fwdtransforms'])
+
+    mni_SyN_trans.image_write(filename = f'/home/jovyan/projects/func-struct_extractor/data/derivatives/{sub_id}_MNI_to_Native.nii.gz')
+
+    print('Plotting Coregistration')
+    # Plot the coregistration and save it in a derivative data directory
+    ants.plot(image = t1_img, 
+              overlay = mni_SyN_trans, 
+              overlay_alpha = 0.5, 
+              filename=f'/home/jovyan/projects/func-struct_extractor/data/derivatives/coregistration/{sub_id}_registration_plot.png', 
+              title = f'{sub_id} MNI to Native Coregistration')
+    
+    print(f'{sub_id} Finished.\n')
+    
+    # Return the native volumetric space
+    return mni_SyN_trans
