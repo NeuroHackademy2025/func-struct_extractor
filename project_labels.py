@@ -1,5 +1,6 @@
 import numpy as np
 import neuropythy as ny
+import ants
 
 def surf_label_2_vol(subs, ROIs, fs_dir, out_dir=None, hemispheres='both'):
     '''
@@ -58,6 +59,78 @@ def surf_label_2_vol(subs, ROIs, fs_dir, out_dir=None, hemispheres='both'):
             vol_array[i, j] = vol
             
     return vol_array
+
+def MNI_label_2_native(fs_dir:str, sub_id: str, mni_fname: str):
+
+    '''
+    Convert MNI labels to native volumetric space.
+
+    Parameters:
+    fs_dir (str): The path to the FS directory. 
+    sub (str): The subject ID as string. 
+    mni_fname (str): The path to the mni space image. 
+    
+    Returns:
+    mni_SyN_trans: the volumetric rois in native space.
+    
+    '''
+
+    print(f'Converting MNI ROI labels to Native space for {sub_id}')
+    
+    # Retrieve the T1 image from subject freesurfer directory
+    t1_fname = nsd_base_path / 'nsddata' / 'ppdata' / sub_id  /'anat' / 'T1_1pt0_masked.nii.gz'
+    t1_img = ants.image_read(t1_fname.fspath)
+
+    t1_brain_mask = ants.get_mask(image = t1_img, 
+                                  low_thresh = 500, high_thresh = 2000, 
+                                  cleanup = 2)
+
+    mni_template = ants.image_read(ants.get_data('mni'))
+
+    # Get the MNI image from ANTS
+    if mni_fname: 
+        print('Using provided MNI ROI Mask Definition')
+        mni_img = ants.image_read(mni_fname)       
+
+    print('Calculating Affine Transformation')
+        
+    # Calculate the Affine Transformation
+    affine_reg = ants.registration(fixed = t1_brain_mask, 
+                                   moving = mni_template,
+                                   # mask = t1_brain_mask,
+                                   moving_mask = mni_img,  
+                                   type_of_transform = 'Affine')
+
+    # Apply Affine Transformation 
+    mni_affine_trans = ants.apply_transforms(fixed = t1_brain_mask, 
+                                             moving = mni_img,
+                                             transformlist=affine_reg['fwdtransforms'])
+    print('Calculating SyN Transformation')
+    # Calculate SyN Transformation
+    SyN_reg = ants.registration(fixed = t1_brain_mask, 
+                                # mask = t1_brain_mask,
+                                moving = mni_affine_trans,
+                                type_of_transform = 'SyN')
+
+    # Apply SyN Transformation
+    mni_SyN_trans = ants.apply_transforms(fixed = t1_brain_mask, 
+                                          moving = mni_affine_trans, 
+                                          transformlist = SyN_reg['fwdtransforms'])
+
+    mni_SyN_trans.image_write(filename = f'/home/jovyan/projects/func-struct_extractor/data/derivatives/{sub_id}_MNI_to_Native.nii.gz')
+
+    print('Plotting Coregistration')
+    # Plot the coregistration and save it in a derivative data directory
+    ants.plot(image = t1_img, 
+              overlay = mni_SyN_trans, 
+              overlay_alpha = 0.5, 
+              filename=f'/home/jovyan/projects/func-struct_extractor/data/derivatives/coregistration/{sub_id}_registration_plot.png', 
+              title = f'{sub_id} MNI to Native Coregistration')
+    
+    print(f'{sub_id} Finished.\n')
+    
+    # Return the native volumetric space
+    return mni_SyN_trans
 
 
 def vol_label_2_surf(nifti_image_path, surface_mesh_path, hemisphere='both', output_filename_prefix=None):
