@@ -49,9 +49,46 @@ def surf_label_2_vol(sub_id, label, fs_dir, out_dir=None, hemi='both'):
     
     return vol
 
+<<<<<<< HEAD
+=======
+        for j, roi in enumerate(ROIs):
+            # Create a template volume to fill with labels
+            template = sub.images['ribbon']
+            template = ny.image_clear(template)
+            
+            # Initialize masks for both hemispheres
+            label_lh_mask = np.zeros(sub.lh.vertex_count)
+            label_rh_mask = np.zeros(sub.rh.vertex_count)
+
+            # Process left hemisphere if needed
+            if hemispheres in ['lh', 'both']:
+                label_lh = sub.load(f'label/lh.{roi}.label')
+                label_lh_mask[label_lh[0]] = True
+
+            # Process right hemisphere if needed
+            if hemispheres in ['rh', 'both']:
+                label_rh = sub.load(f'label/rh.{roi}.label')
+                label_rh_mask[label_rh[0]] = True
+
+            # Convert masks to NIfTI objects (the other hemisphere will just be zeros)
+            vol = sub.cortex_to_image((label_lh_mask, label_rh_mask), im=template)
+
+            # Save volume if out_dir is provided
+            if out_dir is not None:
+                vol.to_filename(f'{out_dir}{sub_id}_{roi}_vol.nii.gz')
+
+            # Store the volume for this subject and ROI
+            vol_array[i, j] = vol
+            
+    return vol_array
+
+def MNI_label_2_native(t1_fname:str, sub_id: str, calc_brain_mask: bool, 
+                       roi_fname: str, save_coreg:bool, out_fname:str):
+>>>>>>> 41e4337 (Fixing Volumetric ROI projection functions.)
 
 def vol_label_2_surf(sub_id, label, fs_dir, out_dir=None, hemi='both'):
     '''
+<<<<<<< HEAD
     Convert surface labels to volumetric NIfTI images for specified subjects and ROIs.
 
     Parameters:
@@ -60,6 +97,191 @@ def vol_label_2_surf(sub_id, label, fs_dir, out_dir=None, hemi='both'):
     fs_dir (str): Directory containing FreeSurfer subjects.
     out_dir (str or None): Directory to save the output NIfTI volumes. If None, volumes are not saved. Default is None.
     hemi (str): Specify 'lh', 'rh', or 'both' to determine which hemispheres to process. Default is 'both'.
+=======
+    Function to take ROIs from MNI space to Native space. 
+
+    Parameters: 
+    -----------
+    t1_fname (str): The path to the T1 file.
+    sub_id (str): The unique identifier for the subject.
+    calc_brain_mask (bool): Whether the function should calculate a new brain mask.
+    roi_fname (str): The path to the ROI file.
+    save_coreg (bool): Whether to save the coregistration to file. 
+    out_fname (str): Filename for the coregistration file.
+
+    Returns: 
+    --------
+    native_coreg: The Volumetric ROIs in MNI space as an ANTsImage.  
+    
+    '''
+
+    print(f'Converting MNI ROI labels to Native space for {sub_id}')
+    
+    # Loading the T1 Image
+    try: 
+        t1_img = ants.image_read(t1_fname)
+    except: 
+        t1_img = ants.image_read(t1_fname.fspath)
+
+    # Calculating the brain mask if needed
+    if calc_brain_mask == True: 
+        t1_brain_mask = ants.get_mask(image = t1_img, 
+                                      low_thresh = 500, high_thresh = 2000, 
+                                      cleanup = 2)
+        # Applying mask to T1 image
+        t1_masked = ants.mask_image(t1_img, t1_brain_mask)
+    else: 
+        t1_maske = ants.clone(t1_img)
+
+    del t1_img
+    
+    # Loading the mni template
+    mni_template = ants.image_read(ants.get_data('mni'))
+
+    # Loading the MNI Space Volumetric ROIs
+    if roi_fname: 
+        print('Using provided MNI ROI Definition')
+        roi_img = ants.image_read(roi_fname)       
+
+    print('Calculating Affine Transformation')
+    # Calculate the Affine Transformation
+    affine_reg = ants.registration(fixed = t1_masked, 
+                                   moving = mni_template, 
+                                   type_of_transform = 'Affine')
+
+    # Apply Affine Transformation 
+    if roi_fname: 
+        mni_affine_trans = ants.apply_transforms(fixed = t1_masked, 
+                                                 moving = roi_img,
+                                                 transformlist=affine_reg['fwdtransforms'])
+    else: 
+        mni_affine_trans = ants.apply_transforms(fixed = t1_masked, 
+                                                 moving = mni_template,
+                                                 transformlist=affine_reg['fwdtransforms'])
+    print('Calculating SyN Transformation')
+    # Calculate SyN Transformation
+    SyN_reg = ants.registration(fixed = t1_masked, 
+                                moving = mni_affine_trans,
+                                type_of_transform = 'SyN')
+
+    # Apply SyN Transformation
+    native_coreg = ants.apply_transforms(fixed = t1_masked, 
+                                          moving = mni_affine_trans, 
+                                          transformlist = SyN_reg['fwdtransforms'])
+
+    if save_coreg: native_coreg.image_write(filename = out_fname)
+    
+    print(f'{sub_id} Finished.\n')
+    
+    # Return the native volumetric space
+    return native_coreg
+
+def native_label_2_mni(t1_fname:str, sub_id: str, calc_brain_mask: bool, 
+                       roi_fname: str, save_coreg:bool, out_fname:str):
+
+    '''
+    Function to take ROIs from Native space to MNI space. 
+
+    Parameters: 
+    -----------
+    t1_fname (str): The path to the T1 file.
+    sub_id (str): The unique identifier for the subject.
+    calc_brain_mask (bool): Whether the function should calculate a new brain mask.
+    roi_fname (str): The path to the ROI file.
+    save_coreg (bool): Whether to save the coregistration to file. 
+    out_fname (str): Filename for the coregistration file.
+
+    Returns: 
+    --------
+    mni_coreg: The Volumetric ROIs in MNI space as an ANTsImage.  
+    
+    '''
+
+    print(f'Converting Native ROI labels to MNI space for {sub_id}')
+    
+    # Retrieve the T1 image from subject freesurfer directory
+    try:
+        t1_img = ants.image_read(t1_fname)
+    except:
+        t1_img = ants.image_read(t1_fname.fspath)
+
+    # Calculating the brain mask if needed
+    if calc_brain_mask == True: 
+        t1_brain_mask = ants.get_mask(image = t1_img, 
+                                      low_thresh = 500, high_thresh = 2000, 
+                                      cleanup = 2)
+        # Applying mask to T1 image
+        t1_masked = ants.mask_image(t1_img, t1_brain_mask)
+    else: 
+        t1_masked = ants.clone(t1_img)
+
+    del t1_img
+    
+    # Loading the mni template
+    mni_template = ants.image_read(ants.get_data('mni'))
+
+    if roi_fname: 
+        # Loading the Native Space Volumetric ROIs
+        try: 
+            ants.image_read(roi_fname)
+        except: 
+            roi_img = ants.image_read(roi_fname.fspath)     
+
+    print('Calculating Affine Transformation')
+        
+    # Calculate the Affine Transformation
+    affine_reg = ants.registration(fixed = mni_template, 
+                                   moving = t1_masked,
+                                   type_of_transform = 'Affine')
+
+    # Apply Affine Transformation 
+    if roi_fname: 
+        mni_affine_trans = ants.apply_transforms(fixed = mni_template, 
+                                                 moving = roi_img,
+                                                 transformlist=affine_reg['fwdtransforms'])
+    else: 
+        mni_affine_trans = ants.apply_transforms(fixed = mni_template, 
+                                                 moving = t1_masked,
+                                                 transformlist=affine_reg['fwdtransforms'])    
+    print('Calculating SyN Transformation')
+    # Calculate SyN Transformation
+    SyN_reg = ants.registration(fixed = mni_template, 
+                                moving = mni_affine_trans,
+                                type_of_transform = 'SyN')
+
+    # Apply SyN Transformation
+    mni_coreg = ants.apply_transforms(fixed = mni_template, 
+                                      moving = mni_affine_trans, 
+                                      transformlist = SyN_reg['fwdtransforms'])
+
+    if save_coreg: mni_coreg.image_write(filename = out_fname)
+    
+    print(f'{sub_id} Finished.\n')
+    
+    # Return the native volumetric space
+    return mni_coreg
+
+
+def vol_label_2_surf(nifti_image_path, surface_mesh_path, hemisphere='both', output_filename_prefix=None):
+    '''
+    Convert a NIfTI image to surface labels in the MNE format.
+
+    This function takes a NIfTI image and projects it onto a specified 
+    surface mesh. It creates labels based on the indices of non-zero 
+    values in the surface data and either saves them as .label files 
+    or returns them as Label objects.
+
+    Parameters:
+    nifti_image_path (str): The file path to the input NIfTI image (.nii or .nii.gz).
+    surface_mesh_path (str): The file path to the surface mesh file.
+    hemisphere (str): The hemisphere(s) to create the label for. Options are:
+                      'lh' for left hemisphere, 'rh' for right hemisphere, 
+                      or 'both' for both hemispheres. Default is 'both'.
+    output_filename_prefix (str or None): The prefix for the resulting label file(s). 
+                                           If provided, the files will be saved. 
+                                           If None, the labels will not be saved, 
+                                           and instead, the function will return the labels.
+>>>>>>> 41e4337 (Fixing Volumetric ROI projection functions.)
 
     Returns:
     np.ndarray: An array of shape (number of subjects, number of ROIs) containing the generated volumes.
