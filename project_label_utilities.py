@@ -50,7 +50,7 @@ def surf_label_2_vol(sub_id, label, fs_dir, out_dir=None, hemi='both'):
     return vol
 
 
-def vol_label_2_surf(sub_id, label, fs_dir, out_dir=None, hemi='both'):
+def vol_label_2_surf(sub_id, label, fs_dir, roi_fname, out_dir=None,hemi='both'):
     '''
     Convert surface labels to volumetric NIfTI images for specified subjects and ROIs.
 
@@ -64,33 +64,39 @@ def vol_label_2_surf(sub_id, label, fs_dir, out_dir=None, hemi='both'):
     Returns:
     np.ndarray: An array of shape (number of subjects, number of ROIs) containing the generated volumes.
     '''
-  
+
+    labels = {}
+    
     # Make sure that the ny module is ready to be used
-    sub = ny.freesurfer_subject(f'{fs_dir}{sub_id}/')
+    sub = ny.freesurfer_subject(f'{fs_dir}/{sub_id}/')
 
     # Convert masks to NIfTI object
     lh_label, rh_label = sub.image_to_cortex(label)
 
     lh_label_indices = np.where(lh_label > 0)[0]
     if len(lh_label_indices) > 0:
-        left_label = mne.Label(lh_label_indices, hemi='lh')
+        left_label = mne.Label(lh_label_indices, hemi='lh', name=roi_fname)
+        labels['lh_label'] = left_label
         if out_dir is not None:
-            left_label.save(f'{out_dir}lh_{sub_id}_{label}')    
+            print(f'saveing file lh: {out_dir}lh_{sub_id}_{roi_fname}')
+            left_label.save(f'{out_dir}lh_{sub_id}_{roi_fname}')    
     else:
-        return('no vertices in left hemisphere')
+        print('no vertices in left hemisphere')
 
     rh_label_indices = np.where(rh_label > 0)[0]
-    if len(lh_label_indices) > 0:
-        right_label = mne.Label(rh_label_indices, hemi='lh')
+    if len(rh_label_indices) > 0:
+        right_label = mne.Label(rh_label_indices, hemi='rh', name=roi_fname)
+        labels['rh_label'] = right_label
         if out_dir is not None:
-                    right_label.save(f'{out_dir}rh_{sub_id}_{label}')    else:
-        return('no vertices in right hemisphere')
+                    right_label.save(f'{out_dir}rh_{sub_id}_{roi_fname}')    
+        else:
+            print('no vertices in right hemisphere')
             
-    return (left_label, right_label)
+    return labels
 
     
 def fsnative_label_2_fsaverage(fsnative_path, fsaverage_path, fsnative_label,
-                                hemisphere, output_filename=None):
+                                hemisphere, roi_fname, output_filename=None):
     '''
     Interpolate a surface label from a native FreeSurfer subject to the fsaverage surface.
 
@@ -137,7 +143,7 @@ def fsnative_label_2_fsaverage(fsnative_path, fsaverage_path, fsnative_label,
     fsa_label_indices = np.where(fsa_label == True)[0]
 
     # Create an MNE Label object using the interpolated indices
-    label = mne.Label(fsa_label_indices, hemi=hemisphere)
+    label = mne.Label(fsa_label_indices, hemi=hemisphere, name=roi_fname)
 
     # Save the label if an output filename is provided
     if output_filename is not None:
@@ -146,7 +152,7 @@ def fsnative_label_2_fsaverage(fsnative_path, fsaverage_path, fsnative_label,
     return label
 
 def fsaverage_label_2_fsnative(fsaverage_path, fsnative_path, fsaverage_label,
-                                hemisphere, output_filename=None):
+                                hemisphere, roi_fname, output_filename=None):
     '''
     Interpolate a surface label from a native FreeSurfer subject to the fsaverage surface.
 
@@ -193,7 +199,7 @@ def fsaverage_label_2_fsnative(fsaverage_path, fsnative_path, fsaverage_label,
     fsn_label_indices = np.where(fsn_label == True)[0]
 
     # Create an MNE Label object using the interpolated indices
-    label = mne.Label(fsn_label_indices, hemi=hemisphere)
+    label = mne.Label(fsn_label_indices, hemi=hemisphere, name=roi_fname)
 
     # Save the label if an output filename is provided
     if output_filename is not None:
